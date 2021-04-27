@@ -1,0 +1,17 @@
+#Make cache
+.cache.mk
+
+
+# Object files
+tcp_newcwv.[ck]o
+.tcp_newcwv.[ck]o.*
+tcp_newcwv.o
+tcp_newcwv.o.*
+.tcp_newcwv.o.*
+tcp_newcwv.mod.*
+.tcp_newcwv.mod.*
+
+#Make module generated
+.tmp_versions
+Module.symvers
+modules.order
