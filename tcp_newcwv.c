@@ -41,24 +41,24 @@ static u32 divide_or_zero(u32 dividend, u32 divisor)
 }
 
 /* adds an element to the circular buffer for maximum filter */
-static void add_element(struct newcwv *nc, int val)
+static void add_element(struct newcwv *nc, int val, struct tcp_sock *tp)
 {
 	nc->head = nextbin(nc->head);
 	nc->psample[nc->head] = val;
-	nc->time_stamp[nc->head] = tcp_time_stamp;
+	nc->time_stamp[nc->head] = tcp_time_stamp(tp);
 }
 
 /* This fuction removes all the expired elements from the circular buffer
  * and returns the maximum from the remaining elements
  */
-static int remove_expired_element(struct newcwv *nc)
+static int remove_expired_element(struct newcwv *nc, struct tcp_sock *tp)
 {
 	int k = nc->head;
 	int tmp = nc->psample[nc->head];
 
 	while (nc->psample[k] != UNDEF_PIPEACK) {
 		/* remove expired */
-		if (nc->time_stamp[k] < tcp_time_stamp - nc->psp) {
+		if (nc->time_stamp[k] < tcp_time_stamp(tp) - nc->psp) {
 			nc->psample[k] = UNDEF_PIPEACK;
 			return tmp;
 		}
@@ -92,7 +92,7 @@ static void datalim_closedown(struct sock *sk)
 	u32 nc_ts;
 
 	nc_ts = nc->cwnd_valid_ts;
-	while ((tcp_time_stamp - nc_ts) > FIVEMINS) {
+	while ((tcp_time_stamp(tp) - nc_ts) > FIVEMINS) {
 		nc_ts += FIVEMINS;
 		nc->cwnd_valid_ts = nc_ts;
 		tp->snd_ssthresh =
@@ -109,8 +109,9 @@ static void update_pipeack(struct sock *sk)
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	int tmp_pipeack;
+	u32 tcp_ts = tcp_time_stamp(tp);
 
-	nc->psp = max(3 * (tp->srtt >> 3), (u32) HZ);
+	nc->psp = max(3 * (tp->srtt_us >> 3), (u32) HZ);
 
 	if (tp->snd_una >= nc->prev_snd_nxt) {
 
@@ -120,18 +121,18 @@ static void update_pipeack(struct sock *sk)
 		nc->prev_snd_nxt = tp->snd_nxt;
 
 		/* create a new element at the end of current pmp */
-		if (tcp_time_stamp > nc->time_stamp[nc->head] + (nc->psp >> 2))
-			add_element(nc, tmp_pipeack);
+		if (tcp_ts > nc->time_stamp[nc->head] + (nc->psp >> 2))
+			add_element(nc, tmp_pipeack, tp);
 		else if (tmp_pipeack > nc->psample[nc->head])
 			nc->psample[nc->head] = tmp_pipeack;
 	}
 
-	nc->pipeack = remove_expired_element(nc);
+	nc->pipeack = remove_expired_element(nc, tp);
 
 	/* check if cwnd is validated */
 	if (tcp_is_in_vp(tp, nc->pipeack)) {
 		nc->flags |= IS_VALID;
-		nc->cwnd_valid_ts = tcp_time_stamp;
+		nc->cwnd_valid_ts = tcp_ts;
 	} else {
 		nc->flags &= ~IS_VALID;
 		datalim_closedown(sk);
@@ -143,14 +144,15 @@ static void tcp_newcwv_init(struct sock *sk)
 {
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
+	u32 tcp_ts = tcp_time_stamp(tp);
 
 	nc->prev_snd_una = tp->snd_una;
 	nc->prev_snd_nxt = tp->snd_nxt;
 
-	nc->cwnd_valid_ts = tcp_time_stamp;
+	nc->cwnd_valid_ts = tcp_ts;
 	nc->flags = IS_VALID;
 
-	nc->psp = max(3 * (tp->srtt >> 3), (u32) HZ);
+	nc->psp = max(3 * (tp->srtt_us >> 3), (u32) HZ);
 
 	nc->head = 0;
 	nc->psample[0] = UNDEF_PIPEACK;
@@ -159,29 +161,29 @@ static void tcp_newcwv_init(struct sock *sk)
 
 
 /* cong_avoid action: non dubious ACK received */
-static void tcp_newcwv_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
+static void tcp_newcwv_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	nc->prior_in_flight = in_flight;
+	nc->prior_in_flight = tcp_packets_in_flight(tp);
 	nc->prior_retrans = tp->total_retrans;
 
 	update_pipeack(sk);
 
 	/* Check if cwnd is validated */
-	if (!(nc->flags & IS_VALID) && !tcp_is_cwnd_limited(sk, in_flight))
+	if (!(nc->flags & IS_VALID) && !tcp_is_cwnd_limited(sk))
 		return;
 
 	/* The following is the Reno behaviour */
 
 	/* In "safe" area, increase. */
 	if (tp->snd_cwnd <= tp->snd_ssthresh)
-		tcp_slow_start(tp);
+		tcp_slow_start(tp, acked);
 
 	/* In dangerous area, increase slowly. */
 	else
-		tcp_cong_avoid_ai(tp, tp->snd_cwnd);
+		tcp_cong_avoid_ai(tp, tp->snd_cwnd, acked);
 
 }
 
@@ -232,7 +234,7 @@ static void tcp_newcwv_end_recovery(struct sock *sk)
 static void tcp_newcwv_event(struct sock *sk, enum tcp_ca_event event)
 {
 	struct newcwv *nc = inet_csk_ca(sk);
-	const struct inet_connection_sock *icsk = inet_csk(sk);
+	// const struct inet_connection_sock *icsk = inet_csk(sk);
 
 	switch (event) {
 	case CA_EVENT_TX_START:
@@ -248,23 +250,26 @@ static void tcp_newcwv_event(struct sock *sk, enum tcp_ca_event event)
 		tcp_newcwv_init(sk);
 		break;
 
-	case CA_EVENT_SLOW_ACK:
+	// TODO
+	// ACK related events have been moved to in_ack_event function
 
-		switch (icsk->icsk_ca_state) {
-		case TCP_CA_Recovery:
-			if (!nc->flags)
-				tcp_newcwv_enter_recovery(sk);
-			break;
+	// case CA_EVENT_SLOW_ACK:
 
-		case TCP_CA_Open:
-		case TCP_CA_Disorder:
-		default:
-			break;
-		}
-		break;
+	// 	switch (icsk->icsk_ca_state) {
+	// 	case TCP_CA_Recovery:
+	// 		if (!nc->flags)
+	// 			tcp_newcwv_enter_recovery(sk);
+	// 		break;
+
+	// 	case TCP_CA_Open:
+	// 	case TCP_CA_Disorder:
+	// 	default:
+	// 		break;
+	// 	}
+	// 	break;
 
 	case CA_EVENT_CWND_RESTART:
-	case CA_EVENT_FAST_ACK:
+//	case CA_EVENT_FAST_ACK:
 	default:
 		break;
 	}
@@ -283,6 +288,30 @@ u32 tcp_newcwv_ssthresh(struct sock *sk)
 	return max(prior_in_flight >> 1U, 2U);
 }
 
+void tcp_newcwv_in_ack_event(struct sock *sk, u32 flags) 
+{
+	// Check if ACK is associated with slow path
+	if(flags & CA_ACK_SLOWPATH) 
+	{
+		struct newcwv *nc = inet_csk_ca(sk);
+		const struct inet_connection_sock *icsk = inet_csk(sk);
+
+		switch (icsk->icsk_ca_state) {
+			case TCP_CA_Recovery:
+				if (!nc->flags)
+					tcp_newcwv_enter_recovery(sk);
+				break;
+
+			case TCP_CA_Open:
+			case TCP_CA_Disorder:
+			default:
+				break;
+		}
+	}
+
+
+}
+
 struct tcp_congestion_ops tcp_newcwv = {
 	.flags = TCP_CONG_NON_RESTRICTED,
 	.name = "newcwv",
@@ -291,7 +320,19 @@ struct tcp_congestion_ops tcp_newcwv = {
 	.ssthresh = tcp_newcwv_ssthresh,
 	.cong_avoid = tcp_newcwv_cong_avoid,
 	.cwnd_event = tcp_newcwv_event,
-	.min_cwnd = tcp_reno_min_cwnd,
+
+	//MY:
+	//ACK related events have been moved to in_ack_event handle
+
+	.in_ack_event = tcp_newcwv_in_ack_event, 
+
+	// TODO
+	// MY:
+	//I do not think it makes much sense to re-add it.
+	// But if needed CWND could always be bumped to at least "min_cwnd" value when reduced.
+	// MY:
+	// MIN_CWND was removed in 3.15
+	// .min_cwnd = tcp_reno_min_cwnd,
 };
 
 /* newcwv registered as congestion control in Linux */
