@@ -1,8 +1,7 @@
 obj-m := tcp_newcwv.o
 
-
-KDIR := /home/raffaello/virtualbox/ubuntu-precise/
-
+IDIR= /lib/modules/$(shell uname -r)/kernel/net/ipv4/
+KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
 all: 
@@ -10,6 +9,17 @@ all:
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -rf .cache.mk \
+        .tcp_newcwv.ko.cmd \
+        .tcp_newcwv.mod.o.cmd \
+        .tcp_newcwv.o.cmd \
+        .tmp_versions/ \
+        Module.symvers \
+        modules.order \
+        tcp_newcwv.ko \
+        tcp_newcwv.mod.c \
+        tcp_newcwv.mod.o \
+        tcp_newcwv.o
 
 push: all
 	cp tcp_newcwv.ko /usr/src/WM_with_TMIX/
