@@ -312,6 +312,20 @@ void tcp_newcwv_in_ack_event(struct sock *sk, u32 flags)
 
 }
 
+
+u32 tcp_newcwv_undo_cwnd(struct sock *sk)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+
+	u32 min_window = tp->snd_ssthresh / 2;
+
+	u32 new_window = max(tp->snd_cwnd, tp->prior_cwnd);
+
+	//MY:
+	// Make sure window is at least snd_ssthresh / 2;
+	return max(new_window, min_window); 
+}
+
 struct tcp_congestion_ops tcp_newcwv = {
 	.flags = TCP_CONG_NON_RESTRICTED,
 	.name = "newcwv",
@@ -320,6 +334,7 @@ struct tcp_congestion_ops tcp_newcwv = {
 	.ssthresh = tcp_newcwv_ssthresh,
 	.cong_avoid = tcp_newcwv_cong_avoid,
 	.cwnd_event = tcp_newcwv_event,
+	.undo_cwnd = tcp_newcwv_undo_cwnd,
 
 	//MY:
 	//ACK related events have been moved to in_ack_event handle
@@ -339,6 +354,7 @@ struct tcp_congestion_ops tcp_newcwv = {
 static int __init tcp_newcwv_register(void)
 {
 	BUILD_BUG_ON(sizeof(struct newcwv) > ICSK_CA_PRIV_SIZE);
+	printk(KERN_INFO "Registering NEWCWV1\n");
 	tcp_register_congestion_control(&tcp_newcwv);
 
 	return 0;
@@ -347,6 +363,7 @@ static int __init tcp_newcwv_register(void)
 /* unregister when module is disabled */
 static void __exit tcp_newcwv_unregister(void)
 {
+	printk(KERN_INFO "Unregistering NEWCWV1\n");
 	tcp_unregister_congestion_control(&tcp_newcwv);
 }
 
