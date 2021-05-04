@@ -7,6 +7,13 @@ PWD := $(shell pwd)
 all: 
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
+install_newcwv:
+	install -v -m 644 tcp_newcwv.ko $(IDIR)
+	depmod
+	modprobe tcp_newcwv
+	sysctl -w net.ipv4.tcp_allowed_congestion_control="$(shell sysctl net.ipv4.tcp_allowed_congestion_control -n) newcwv"
+
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	rm -rf .cache.mk \
