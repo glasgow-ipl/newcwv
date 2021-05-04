@@ -139,6 +139,7 @@ static void update_pipeack(struct sock *sk)
 	}
 }
 
+
 /* initialises newcwv variables */
 static void tcp_newcwv_init(struct sock *sk)
 {
@@ -205,6 +206,7 @@ static void tcp_newcwv_enter_recovery(struct sock *sk)
 	tp->snd_cwnd = (tp->snd_cwnd < 1) ? 1 : tp->snd_cwnd;
 
 }
+
 
 /* newcwv actions at the end of recovery */
 static void tcp_newcwv_end_recovery(struct sock *sk)
@@ -285,6 +287,8 @@ u32 tcp_newcwv_ssthresh(struct sock *sk)
 	u32 prior_in_flight =
 	    tp->packets_out - tp->sacked_out - tp->lost_out + tp->retrans_out;
 
+	printk(KERN_INFO "sshtresh called with %u packets out: %u sacked_out: %u lost_out: %u, retrans_out: %u\n", max(prior_in_flight >> 1U, 2U),
+	tp->packets_out, tp->sacked_out, tp->lost_out, tp->retrans_out);
 	return max(prior_in_flight >> 1U, 2U);
 }
 
@@ -332,6 +336,8 @@ u32 tcp_newcwv_undo_cwnd(struct sock *sk)
 
 	u32 new_window = max(tp->snd_cwnd, tp->prior_cwnd);
 
+	printk(KERN_INFO "Undoing cwnd: min_win: %u new_win: %u\n");
+	
 	//MY:
 	// Make sure window is at least snd_ssthresh / 2;
 	return max(new_window, min_window); 
