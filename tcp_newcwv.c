@@ -87,6 +87,7 @@ static inline bool tcp_is_in_vp(struct tcp_sock *tp, int pa)
 /* reduces the cwnd after 5mins of non-validated phase */
 static void datalim_closedown(struct sock *sk)
 {
+	printk("5 mins of inactivity detected, reducing CWND\n");
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 nc_ts;
@@ -143,6 +144,7 @@ static void update_pipeack(struct sock *sk)
 /* initialises newcwv variables */
 static void tcp_newcwv_init(struct sock *sk)
 {
+	printk(KERN_INFO "NEWCWV INIT CALLED\n");
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 tcp_ts = tcp_time_stamp(tp);
@@ -239,18 +241,21 @@ static void tcp_newcwv_event(struct sock *sk, enum tcp_ca_event event)
 	// const struct inet_connection_sock *icsk = inet_csk(sk);
 
 	switch (event) {
-	case CA_EVENT_TX_START:
-		datalim_closedown(sk);
-		break;
+		case CA_EVENT_TX_START:
+			printk(KERN_INFO "Got EVENT_TX_START\n");
+			datalim_closedown(sk);
+			break;
 
-	case CA_EVENT_COMPLETE_CWR:
-		if (!(nc->flags & IS_VALID))
-			tcp_newcwv_end_recovery(sk);
-		break;
+		case CA_EVENT_COMPLETE_CWR:
+			printk(KERN_INFO "Got EVENT_COMPLETE_CWR\n");
+			if (!(nc->flags & IS_VALID))
+				tcp_newcwv_end_recovery(sk);
+			break;
 
-	case CA_EVENT_LOSS:
-		tcp_newcwv_init(sk);
-		break;
+		case CA_EVENT_LOSS:
+			printk(KERN_INFO "GOT EVENT LOSS\n");
+			tcp_newcwv_init(sk);
+			break;
 
 	// TODO
 	// ACK related events have been moved to in_ack_event function
@@ -297,6 +302,7 @@ void tcp_newcwv_in_ack_event(struct sock *sk, u32 flags)
 	// Check if ACK is associated with slow path
 	if(flags & CA_ACK_SLOWPATH) 
 	{
+		printk(KERN_INFO "SLOW ACK\n");
 		struct newcwv *nc = inet_csk_ca(sk);
 		const struct inet_connection_sock *icsk = inet_csk(sk);
 
@@ -336,8 +342,8 @@ u32 tcp_newcwv_undo_cwnd(struct sock *sk)
 
 	u32 new_window = max(tp->snd_cwnd, tp->prior_cwnd);
 
-	printk(KERN_INFO "Undoing cwnd: min_win: %u new_win: %u\n");
-	
+	printk(KERN_INFO "Undoing cwnd: min_win: %u new_win: %u\n", min_window, new_window);
+
 	//MY:
 	// Make sure window is at least snd_ssthresh / 2;
 	return max(new_window, min_window); 
