@@ -8,7 +8,7 @@
 #define UNDEF_PIPEACK 	                -1
 #define PIPEACK_INIT  			TCP_INFINITE_SSTHRESH
 #define TCP_RESTART_WINDOW		1
-#define FIVEMINS  			(HZ*300)
+#define FIVEMINS  			(HZ*75000)
 #define NO_OF_BINS                      4
 #define IS_VALID                        0x0002
 #define IS_RECOVERY                     0x0001
@@ -78,22 +78,32 @@ static int remove_expired_element(struct newcwv *nc, struct tcp_sock *tp)
 /* is TCP in the validated phase? */
 static inline bool tcp_is_in_vp(struct tcp_sock *tp, int pa)
 {
+	printk(KERN_INFO "FUNCTION: TCP_IS_IN_VP\n");
 	if (pa == UNDEF_PIPEACK)
+	{
+		printk(KERN_INFO "VALID_STATE: valid\n");
 		return true;
+	}
 	else
+	{
+		printk(KERN_INFO "VALID_STATE: %d\n", ((pa << 1) >= (tp->snd_cwnd * tp->mss_cache)));
 		return ((pa << 1) >= (tp->snd_cwnd * tp->mss_cache));
+	}
 }
 
 /* reduces the cwnd after 5mins of non-validated phase */
 static void datalim_closedown(struct sock *sk)
 {
-	printk("5 mins of inactivity detected, reducing CWND\n");
+	//printk("5 mins of inactivity detected, reducing CWND\n");
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 nc_ts;
 
+	printk(KERN_INFO "FUNCTION: DATALIM_CLOSEDOWN\n");
+
 	nc_ts = nc->cwnd_valid_ts;
 	while ((tcp_time_stamp(tp) - nc_ts) > FIVEMINS) {
+		printk(KERN_INFO "5 mins passed\n");
 		nc_ts += FIVEMINS;
 		nc->cwnd_valid_ts = nc_ts;
 		tp->snd_ssthresh =
@@ -111,6 +121,9 @@ static void update_pipeack(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	int tmp_pipeack;
 	u32 tcp_ts = tcp_time_stamp(tp);
+
+	printk(KERN_INFO "FUNCTION: update_pipeack\n");
+
 
 	nc->psp = max(3 * (tp->srtt_us >> 3), (u32) HZ);
 
@@ -144,10 +157,11 @@ static void update_pipeack(struct sock *sk)
 /* initialises newcwv variables */
 static void tcp_newcwv_init(struct sock *sk)
 {
-	printk(KERN_INFO "NEWCWV INIT CALLED\n");
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 tcp_ts = tcp_time_stamp(tp);
+
+	printk(KERN_INFO "NEWCWV INIT CALLED\n");
 
 	nc->prev_snd_una = tp->snd_una;
 	nc->prev_snd_nxt = tp->snd_nxt;
@@ -169,24 +183,41 @@ static void tcp_newcwv_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	printk(KERN_INFO "FUNCTION: CONG_AVOID\n");
+
 	nc->prior_in_flight = tcp_packets_in_flight(tp);
 	nc->prior_retrans = tp->total_retrans;
 
 	update_pipeack(sk);
 
+	//printk(KERN_INFO "is_valid: %d is_cwnd_limited: %d\n", !(nc->flags & IS_VALID), !tcp_is_cwnd_limited(sk));
+
 	/* Check if cwnd is validated */
 	if (!(nc->flags & IS_VALID) && !tcp_is_cwnd_limited(sk))
 		return;
+	//printk(KERN_INFO "Doing Reno\n");
 
 	/* The following is the Reno behaviour */
 
+
+	//printk(KERN_INFO "slow_start: %d entering slow start: %d acked num: %u\n", tcp_in_slow_start(tp), tp->snd_cwnd <= tp->snd_ssthresh, acked);
+
+	//u32 acked_tmp = acked;
+	//u32 cwnd = min(tp->snd_cwnd + acked, tp->snd_ssthresh);
+
+	//acked_tmp -= cwnd - tp->snd_cwnd;
+	//printk(KERN_INFO "Calculated cwnd: %u, acked: %u, cwnd_clamp: %u\n", cwnd, acked_tmp, tp->snd_cwnd_clamp);
+
+	//printk(KERN_INFO "slow_start: %d entering slow start: %d acked num: %u\n", tcp_in_slow_start(tp), tp->snd_cwnd <= tp->snd_ssthresh, acked);
 	/* In "safe" area, increase. */
 	if (tp->snd_cwnd <= tp->snd_ssthresh)
-		tcp_slow_start(tp, acked);
+	{
+		acked = tcp_slow_start(tp, acked);
+		if(!acked)
+			return;
+	}
 
-	/* In dangerous area, increase slowly. */
-	else
-		tcp_cong_avoid_ai(tp, tp->snd_cwnd, acked);
+	tcp_cong_avoid_ai(tp, tp->snd_cwnd, acked);
 
 }
 
@@ -196,6 +227,8 @@ static void tcp_newcwv_enter_recovery(struct sock *sk)
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 pipeack;
+
+	printk(KERN_INFO "FUNCTION: enter_recovery\n");
 
 	nc->flags |= IS_RECOVERY;
 
@@ -216,6 +249,8 @@ static void tcp_newcwv_end_recovery(struct sock *sk)
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 retrans, pipeack;
+
+	printk(KERN_INFO "FUNCTION: end_recovery\n");
 
 	pipeack = (nc->pipeack == UNDEF_PIPEACK) ? 0 : (u32)
 	    nc->pipeack;
@@ -276,8 +311,12 @@ static void tcp_newcwv_event(struct sock *sk, enum tcp_ca_event event)
 	// 	break;
 
 	case CA_EVENT_CWND_RESTART:
+		printk(KERN_INFO "FUNCTION: CWND_RESTART\n");
+		break;
 //	case CA_EVENT_FAST_ACK:
 	default:
+		printk(KERN_INFO "FUNCTION: UNKNOWN EVENT\n");
+
 		break;
 	}
 
@@ -292,8 +331,11 @@ u32 tcp_newcwv_ssthresh(struct sock *sk)
 	u32 prior_in_flight =
 	    tp->packets_out - tp->sacked_out - tp->lost_out + tp->retrans_out;
 
+	printk(KERN_INFO "FUNCTION: ssthresh\n");
+
 	printk(KERN_INFO "sshtresh called with %u packets out: %u sacked_out: %u lost_out: %u, retrans_out: %u\n", max(prior_in_flight >> 1U, 2U),
 	tp->packets_out, tp->sacked_out, tp->lost_out, tp->retrans_out);
+
 	return max(prior_in_flight >> 1U, 2U);
 }
 
@@ -302,14 +344,17 @@ void tcp_newcwv_in_ack_event(struct sock *sk, u32 flags)
 	// Check if ACK is associated with slow path
 	if(flags & CA_ACK_SLOWPATH) 
 	{
-		printk(KERN_INFO "SLOW ACK\n");
 		struct newcwv *nc = inet_csk_ca(sk);
 		const struct inet_connection_sock *icsk = inet_csk(sk);
 
+		printk(KERN_INFO "SLOW ACK\n");
+
 		switch (icsk->icsk_ca_state) {
 			case TCP_CA_Recovery:
-				if (!nc->flags)
+				if (!nc->flags){
+					printk(KERN_INFO "RECOVERY\n");
 					tcp_newcwv_enter_recovery(sk);
+				}
 				break;
 
 			case TCP_CA_Open:
@@ -349,6 +394,24 @@ u32 tcp_newcwv_undo_cwnd(struct sock *sk)
 	return max(new_window, min_window); 
 }
 
+
+void tcp_trace_state(struct sock* sk, u8 new_state)
+{
+	switch(new_state)
+	{
+		case TCP_CA_CWR:
+			printk(KERN_INFO "Trace event: Entering CWR state (ECN mark or qdisc drop)\n");
+			break;
+		case TCP_CA_Recovery:
+			printk(KERN_INFO "Trace event: Loss. Entering fast retransmit state (dup acks)\n");
+			break;
+		case TCP_CA_Loss:
+			printk(KERN_INFO "Trace event: Loss. Entering loss recovery (Timeout)\n");
+			break;
+	}
+
+}
+
 struct tcp_congestion_ops tcp_newcwv = {
 	.flags = TCP_CONG_NON_RESTRICTED,
 	.name = "newcwv",
@@ -362,7 +425,12 @@ struct tcp_congestion_ops tcp_newcwv = {
 	//MY:
 	//ACK related events have been moved to in_ack_event handle
 
-	.in_ack_event = tcp_newcwv_in_ack_event, 
+	.in_ack_event = tcp_newcwv_in_ack_event,
+
+
+	//MY:
+	//tracing loss events
+	.set_state = tcp_trace_state,
 
 	// TODO
 	// MY:
