@@ -60,7 +60,7 @@ static int remove_expired_element(struct newcwv *nc, struct tcp_sock *tp)
 		/* remove expired */
 		if (nc->time_stamp[k] < tcp_time_stamp(tp) - nc->psp) {
 			nc->psample[k] = UNDEF_PIPEACK;
-			return tmp;
+			continue;
 		}
 
 		/* search the maximum */
@@ -124,8 +124,10 @@ static void update_pipeack(struct sock *sk)
 
 	printk(KERN_INFO "FUNCTION: update_pipeack\n");
 
+	printk(KERN_INFO "srtt: %u (%u) srtt to jifiies: %lu (%u)\n", tp->srtt_us, tp->srtt_us >> 3, usecs_to_jiffies(tp->srtt_us), (u32) usecs_to_jiffies(tp->srtt_us));
 
-	nc->psp = max(3 * (tp->srtt_us >> 3), (u32) HZ);
+	nc->psp = max((u32) (3 * usecs_to_jiffies(tp->srtt_us >> 3)), (u32) HZ);
+	printk(KERN_INFO "SRTT %u %u\n", tp->srtt_us, nc->psp);
 
 	if (tp->snd_una >= nc->prev_snd_nxt) {
 
@@ -133,15 +135,22 @@ static void update_pipeack(struct sock *sk)
 		tmp_pipeack = tp->snd_una - nc->prev_snd_una;
 		nc->prev_snd_una = tp->snd_una;
 		nc->prev_snd_nxt = tp->snd_nxt;
+		printk(KERN_INFO "TMP PIPEACK: %u psample head: %u\n", tmp_pipeack, nc->psample[nc->head]);
 
+		printk(KERN_INFO "TCP_TS %u nc time_stamp %u head nc psp %u \n", tcp_ts, nc->time_stamp[nc->head], (nc->psp >> 2) );
 		/* create a new element at the end of current pmp */
 		if (tcp_ts > nc->time_stamp[nc->head] + (nc->psp >> 2))
+		{
 			add_element(nc, tmp_pipeack, tp);
+		}
 		else if (tmp_pipeack > nc->psample[nc->head])
+		{
 			nc->psample[nc->head] = tmp_pipeack;
+		}
 	}
 
 	nc->pipeack = remove_expired_element(nc, tp);
+	printk(KERN_INFO "Current pipeack: %u, current CWND: %u\n", nc->pipeack, tp->snd_cwnd);
 
 	/* check if cwnd is validated */
 	if (tcp_is_in_vp(tp, nc->pipeack)) {
@@ -183,12 +192,14 @@ static void tcp_newcwv_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	struct newcwv *nc = inet_csk_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	printk(KERN_INFO "FUNCTION: CONG_AVOID\n");
+
 
 	nc->prior_in_flight = tcp_packets_in_flight(tp);
 	nc->prior_retrans = tp->total_retrans;
 
 	update_pipeack(sk);
+
+	printk(KERN_INFO "FUNCTION: CONG_AVOID %u %u %u\n", nc->pipeack, tp->snd_cwnd, tp->mss_cache);
 
 	//printk(KERN_INFO "is_valid: %d is_cwnd_limited: %d\n", !(nc->flags & IS_VALID), !tcp_is_cwnd_limited(sk));
 
