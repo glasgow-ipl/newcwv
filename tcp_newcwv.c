@@ -472,6 +472,6 @@ static void __exit tcp_newcwv_unregister(void)
 module_init(tcp_newcwv_register);
 module_exit(tcp_newcwv_unregister);
 
-MODULE_AUTHOR("Ziaul Hossain/Raffaello Secchi");
+MODULE_AUTHOR("Ziaul Hossain/Raffaello Secchi/Mihail Yanev");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("NewCwv Reno variant");
