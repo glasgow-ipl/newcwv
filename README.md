@@ -1,5 +1,7 @@
 This repository is forked from https://github.com/rsecchi/newcwv
 
+This is a TCP linux 5.4 port of the new CWV implementation provided by Ziaul Hossain and Raffaello Secchi.
+
 --------------------------------------------------------------------------
 
 new-CWV kernel module (draft-ietf-tcpm-newcwv)
